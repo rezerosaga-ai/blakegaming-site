@@ -2,33 +2,48 @@
 <html><head><meta charset="utf-8"><title>Bridge</title></head>
 <body>
 <script>
-(async function(){
+window.__bridgeState = 'waiting for START_SEND';
+(function(){
   function log(m){document.body.insertAdjacentHTML('beforeend','<div>'+m+'</div>');}
-  try {
+  async function sendTo(win, tag){
     const db = await new Promise((res,rej)=>{const rq=indexedDB.open('videodb',1);rq.onsuccess=e=>res(rq.result);rq.onerror=rej;});
-    if(!db.objectStoreNames.contains('v')) { log('no store'); return; }
+    if(!db.objectStoreNames.contains('v')) { log(tag+' no store'); return; }
     const blob = await new Promise((res,rej)=>{const tx=db.transaction('v','readonly');const g=tx.objectStore('v').get('mw4');g.onsuccess=()=>res(g.result);g.onerror=rej;});
-    if(!blob){log('no blob');return;}
-    log('blob OK '+Math.round(blob.size/1048576)+'MB, waiting 3s then sending chunks...');
-    // Send to any opener/parent window
-    function sendTo(win){
-      const CHUNK=8*1048576;
-      const meta={__bridge:true,ready:true,name:'mw4_tiktok.mp4',size:blob.size,type:'video/mp4'};
-      win.postMessage(meta,'*');
-      for(let off=0;off<blob.size;off+=CHUNK){
-        const part=blob.slice(off,Math.min(off+CHUNK,blob.size));
-        part.arrayBuffer().then(buf=>{
-          win.postMessage({__bridge:true,chunk:off,buffer:buf},'*');
-        });
+    if(!blob){log(tag+' no blob');return;}
+    log(tag+' blob OK '+Math.round(blob.size/1048576)+'MB, sending...');
+    const CHUNK=4*1048576;
+    const meta={__bridge:true,ready:true,name:'mw4_tiktok.mp4',size:blob.size,type:'video/mp4',tag:tag};
+    try{ win.postMessage(meta,'*'); }catch(e){log(tag+' send meta fail');return;}
+    let off=0, i=0;
+    function sendNext(){
+      if(off>=blob.size){
+        try{ win.postMessage({__bridge:true,done:true,tag:tag},'*'); }catch(e){log(tag+' send done fail');}
+        log(tag+' all sent');
+        return;
       }
-      setTimeout(()=>win.postMessage({__bridge:true,done:true},'∗'.charCodeAt(0)?'*':'*'), (Math.ceil(blob.size/CHUNK)+2)*200);
+      const part=blob.slice(off,Math.min(off+CHUNK,blob.size));
+      off+=part.size;
+      part.arrayBuffer().then(buf=>{
+        try{ win.postMessage({__bridge:true,chunk:i*CHUNK,buffer:buf,tag:tag},'*'); }catch(e){log(tag+' chunk fail');}
+        i++;
+        setTimeout(sendNext, 100);
+      });
     }
-    await new Promise(r=>setTimeout(r,3000));
-    if(window.opener) sendTo(window.opener);
-    if(window.parent && window.parent!==window) sendTo(window.parent);
-    log('sent to opener/parent');
-  } catch(e){ log('err: '+e.message); }
+    sendNext();
+  }
+  window.addEventListener('message', async (e)=>{
+    const d=e.data;
+    if(!d) return;
+    if(d==='START_SEND' || (d.__bridge && d.cmd==='start')){
+      log('START received from origin '+e.origin);
+      window.__bridgeState='sending';
+      await sendTo(window.parent, 'parent');
+      if(window.opener){ await sendTo(window.opener, 'opener'); }
+      window.__bridgeState='sent';
+    }
+  });
+  window.__bridgeState='listening for START_SEND';
 })();
 </script>
-Bridge starting...
+Bridge listening for START_SEND...
 </body></html>
