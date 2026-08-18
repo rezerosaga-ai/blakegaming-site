@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Bridge</title></head>
+<body>
+<script>
+(async function(){
+  function log(m){document.body.insertAdjacentHTML('beforeend','<div>'+m+'</div>');}
+  try {
+    const db = await new Promise((res,rej)=>{const rq=indexedDB.open('videodb',1);rq.onsuccess=e=>res(rq.result);rq.onerror=rej;});
+    if(!db.objectStoreNames.contains('v')) { log('no store'); return; }
+    const blob = await new Promise((res,rej)=>{const tx=db.transaction('v','readonly');const g=tx.objectStore('v').get('mw4');g.onsuccess=()=>res(g.result);g.onerror=rej;});
+    if(!blob){log('no blob');return;}
+    log('blob OK '+Math.round(blob.size/1048576)+'MB, waiting 3s then sending chunks...');
+    // Send to any opener/parent window
+    function sendTo(win){
+      const CHUNK=8*1048576;
+      const meta={__bridge:true,ready:true,name:'mw4_tiktok.mp4',size:blob.size,type:'video/mp4'};
+      win.postMessage(meta,'*');
+      for(let off=0;off<blob.size;off+=CHUNK){
+        const part=blob.slice(off,Math.min(off+CHUNK,blob.size));
+        part.arrayBuffer().then(buf=>{
+          win.postMessage({__bridge:true,chunk:off,buffer:buf},'*');
+        });
+      }
+      setTimeout(()=>win.postMessage({__bridge:true,done:true},'∗'.charCodeAt(0)?'*':'*'), (Math.ceil(blob.size/CHUNK)+2)*200);
+    }
+    await new Promise(r=>setTimeout(r,3000));
+    if(window.opener) sendTo(window.opener);
+    if(window.parent && window.parent!==window) sendTo(window.parent);
+    log('sent to opener/parent');
+  } catch(e){ log('err: '+e.message); }
+})();
+</script>
+Bridge starting...
+</body></html>
