@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Transfer</title></head>
+<body>
+<script>
+window.addEventListener('message', async (e) => {
+  if (e.data === 'GET_VIDEO') {
+    try {
+      const r = await fetch('mw4_tiktok.mp4');
+      const blob = await r.blob();
+      const name = 'mw4_tiktok.mp4';
+      const meta = {name, size: blob.size, type: 'video/mp4', chunks: Math.ceil(blob.size/1048576)};
+      // send metadata + file chunks of 8MB
+      window.parent && window.parent.postMessage({ready: true, meta}, '*');
+      window.postMessage({ready: true, meta}, '*');
+      const CHUNK = 8*1024*1024;
+      for (let off = 0; off < blob.size; off += CHUNK) {
+        const part = blob.slice(off, Math.min(off+CHUNK, blob.size));
+        const arr = await part.arrayBuffer();
+        window.parent && window.parent.postMessage({chunk: off, buffer: arr}, '*');
+        window.postMessage({chunk: off, buffer: arr}, '*');
+      }
+      window.parent && window.parent.postMessage({done: true}, '*');
+      window.postMessage({done: true}, '*');
+    } catch(err) {
+      window.parent && window.parent.postMessage({error: String(err)}, '*');
+      window.postMessage({error: String(err)}, '*');
+    }
+  }
+});
+</script>
+Waiting for GET_VIDEO request...
+</body></html>
